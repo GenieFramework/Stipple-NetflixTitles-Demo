@@ -8,7 +8,7 @@ original_data = DataFrame()
 function parse_date_added(strdates::Vector{Union{String,Missing}})
   date_added_format = DateFormat("U d, Y")
   map(strdates) do d
-    ismissing(d) ? missing : Date(strip(d), date_added_format)
+    ismissing(d) ? rand(2008:2021) : Date(strip(d), date_added_format) |> year
   end
 end
 
@@ -74,8 +74,8 @@ function titles() :: Vector{String}
   original_data[!, :title] |> Array |> unique! |> sort!
 end
 
-function individuals(data::Vector{String}) :: Vector{String}
-  result = String[]
+function individuals(data::V)::Vector{V} where {V<:AbstractVector}
+  result = V[]
 
   for d in data
     if occursin(',', d)
@@ -104,6 +104,42 @@ function categories() :: Vector{String}
   original_data[!, :listed_in] |> Array |> individuals
 end
 
+function durations_movies() :: Vector{Int}
+  original_data[!, :duration_minutes] |> Array |> skipmissing |> collect
+end
+
+function durations_shows() :: Vector{Int}
+  original_data[!, :duration_seasons] |> Array |> skipmissing |> collect
+end
+
+const years = [1925:2021...]
+
+function releases_per_year() :: Tuple{Vector{Int},Vector{Int}}
+  no_of_releases = Int[]
+
+  releases_by_year = combine(groupby(original_data, [:release_year]), nrow => :count)
+
+  for y in years
+    r = releases_by_year[releases_by_year[!, :release_year] .== y, :count]
+    push!(no_of_releases, isempty(r) ? 0 : r[1])
+  end
+
+  years, no_of_releases
+end
+
+function added_per_year() :: Tuple{Vector{Int},Vector{Int}}
+  no_of_added = Int[]
+
+  added_by_year = combine(groupby(original_data, [:date_added]), nrow => :count)
+
+  for y in years
+    r = added_by_year[added_by_year[!, :date_added] .== y, :count]
+    push!(no_of_added, isempty(r) ? 0 : r[1])
+  end
+
+  years, no_of_added
+end
+
 function __init__() :: Nothing
   load_data()
 
@@ -129,6 +165,42 @@ Base.@kwdef mutable struct Model <: ReactiveModel
   types_plot_layout::R{PlotLayout} = PlotLayout(
     title_text = "Title Types"
   )
+
+  releases_plot_data::R{Vector{PlotData}} = [PlotData(
+    plot = StipplePlotly.Charts.PLOT_TYPE_SCATTER,
+    mode = "lines",
+    name = "Releases",
+    x = NetflixDashboardData.releases_per_year()[1],
+    y = NetflixDashboardData.releases_per_year()[2]
+  ),
+  PlotData(
+    plot = StipplePlotly.Charts.PLOT_TYPE_SCATTER,
+    mode = "lines",
+    name = "Additions",
+    x = NetflixDashboardData.added_per_year()[1],
+    y = NetflixDashboardData.added_per_year()[2]
+  )]
+  releases_plot_layout::R{PlotLayout} = PlotLayout(
+    title_text = "Release vs added times"
+  )
+
+  movies_durations_plot_data::R{PlotData} = PlotData(
+    plot = StipplePlotly.Charts.PLOT_TYPE_HISTOGRAM,
+    x = NetflixDashboardData.durations_movies(),
+    name = "Movie duration in minutes"
+  )
+  movies_durations_plot_layout::R{PlotLayout} = PlotLayout(
+    title_text = "Movie durations"
+  )
+
+  series_durations_plot_data::R{PlotData} = PlotData(
+    plot = StipplePlotly.Charts.PLOT_TYPE_HISTOGRAM,
+    x = NetflixDashboardData.durations_shows(),
+    name = "Number of seasons"
+  )
+  series_durations_plot_layout::R{PlotLayout} = PlotLayout(
+    title_text = "Series durations"
+  )
 end
 
 model = Stipple.init(Model())
@@ -146,13 +218,27 @@ function ui(model::R) where {R<:ReactiveModel}
 
         row(
           cell(class="st-module", [
-            p("A visual exploration of the Netflix titles catalog based on a free dataset containing 7539 entries.", class="text-muted"),
+            h4("A visual exploration of the Netflix titles catalog based on a free dataset containing 7539 entries.",
+            class="text-muted",
+            style="padding: 10px 20px; width: 100%;"),
           ])
         )
 
-        row(
+        row([
           cell(class="st-module", [
             plot(:types_plot_data, layout = :types_plot_layout)
+          ])
+          cell(class="st-module", [
+            plot(:movies_durations_plot_data, layout = :movies_durations_plot_layout)
+          ])
+          cell(class="st-module", [
+            plot(:series_durations_plot_data, layout = :series_durations_plot_layout)
+          ])
+        ])
+
+        row(
+          cell(class="st-module", [
+            plot(:releases_plot_data, layout = :releases_plot_layout)
           ])
         )
       ]
